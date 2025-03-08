@@ -334,13 +334,16 @@ const saveAlertSettings = () => {
 let timer: number | null = null
 
 const handleVisibilityChange = () => {
-  if (document.hidden && flashEnabled.value) {
-    if (Notification.permission === 'granted') {
-      new Notification('BTC Monitor 正在运行', {
-        body: `当前价格: ${currentPrice.value} USDT\n监控持续进行中`,
-        icon: '/favicon.ico'
-      })
+  if (document.hidden) {
+    if (timer) {
+      clearInterval(timer)
+      timer = setInterval(fetchBTCData, 3000) // 后台3秒更新一次
     }
+  } else {
+    if (timer) {
+      clearInterval(timer)
+    }
+    timer = setInterval(fetchBTCData, 1000) // 前台1秒更新一次
   }
 }
 
@@ -354,7 +357,6 @@ onMounted(() => {
   if (savedAlert) {
     try {
       const parsed = JSON.parse(savedAlert) as AlertSettings
-      // 确保所有必要的字段都存在
       if (parsed && parsed.type && typeof parsed.price1 === 'number' && 
           typeof parsed.price2 === 'number' && typeof parsed.price3 === 'number') {
         alertForm.value = {
@@ -370,8 +372,14 @@ onMounted(() => {
     }
   }
   
+  // 立即获取第一次数据
   fetchBTCData()
-  timer = setInterval(fetchBTCData, 500)
+  
+  // 启动定时更新
+  timer = setInterval(fetchBTCData, 1000)
+  
+  // 添加页面可见性监听
+  document.addEventListener('visibilitychange', handleVisibilityChange)
   
   // 加载通知设置
   const savedSettings = localStorage.getItem('btcSettings')
@@ -386,8 +394,6 @@ onMounted(() => {
       console.error('Error loading notification settings:', error)
     }
   }
-  
-  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onBeforeUnmount(() => {
