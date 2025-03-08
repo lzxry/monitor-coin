@@ -223,7 +223,12 @@ const isPricePointReached = (price: number) => {
 
 const fetchBTCData = async () => {
   try {
-    const response = await axios.get('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT')
+    const response = await axios.get('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT', {
+      // 添加时间戳防止缓存
+      params: {
+        _t: Date.now()
+      }
+    })
     const data = response.data
     
     currentPrice.value = parseFloat(data.lastPrice)
@@ -234,8 +239,17 @@ const fetchBTCData = async () => {
     
     // 检查预警条件
     checkAlert()
+    
+    // 确保下一次更新
+    if (!document.hidden) {
+      scheduleNextUpdate()
+    }
   } catch (error) {
     console.error('获取数据失败:', error)
+    // 发生错误时也要确保继续更新
+    if (!document.hidden) {
+      scheduleNextUpdate()
+    }
   }
 }
 
@@ -331,19 +345,25 @@ const saveAlertSettings = () => {
   }
 }
 
-let timer: number | null = null
+let updateTimeout: number | null = null
+
+const scheduleNextUpdate = () => {
+  if (updateTimeout) {
+    clearTimeout(updateTimeout)
+  }
+  updateTimeout = window.setTimeout(fetchBTCData, 1000)
+}
 
 const handleVisibilityChange = () => {
   if (document.hidden) {
-    if (timer) {
-      clearInterval(timer)
-      timer = setInterval(fetchBTCData, 3000) // 后台3秒更新一次
+    // 页面隐藏时清除更新
+    if (updateTimeout) {
+      clearTimeout(updateTimeout)
+      updateTimeout = null
     }
   } else {
-    if (timer) {
-      clearInterval(timer)
-    }
-    timer = setInterval(fetchBTCData, 1000) // 前台1秒更新一次
+    // 页面可见时立即获取数据并恢复更新
+    fetchBTCData()
   }
 }
 
@@ -375,9 +395,6 @@ onMounted(() => {
   // 立即获取第一次数据
   fetchBTCData()
   
-  // 启动定时更新
-  timer = setInterval(fetchBTCData, 1000)
-  
   // 添加页面可见性监听
   document.addEventListener('visibilitychange', handleVisibilityChange)
   
@@ -397,8 +414,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (timer) {
-    clearInterval(timer)
+  if (updateTimeout) {
+    clearTimeout(updateTimeout)
   }
   if (flashTimer) {
     clearTimeout(flashTimer)
