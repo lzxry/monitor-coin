@@ -304,42 +304,33 @@ const checkAlert = (symbol: string) => {
   const validPrices = threshold.prices.filter(p => p !== '0')
   if (validPrices.length === 0) return
 
-  // 检查价格点是否按顺序被触发
+  // 检查是否有任意价格点被触发
   validPrices.forEach(priceStr => {
     const price = Number(priceStr)
     if (isNaN(price)) return
 
-    // 检查是否是下一个需要触发的价格点
-    const isNextPrice = threshold.reachedPrices.length === validPrices.indexOf(priceStr)
-
-    // 如果是下一个价格点，并且价格穿过了这个点，就记录下来
-    if (isNextPrice && ((lastPrice < price && currentPrice >= price) || 
-        (lastPrice > price && currentPrice <= price))) {
-      threshold.reachedPrices.push(priceStr)
+    // 检查价格是否穿过预警点
+    if ((lastPrice < price && currentPrice >= price) || 
+        (lastPrice > price && currentPrice <= price)) {
+      threshold.isAlerting = true
+      threshold.reachedPrices = [priceStr] // 只记录触发的价格点
+      triggerAlert(symbol, currentPrice, currentPrice > lastPrice ? 'up' : 'down')
     }
   })
-
-  // 检查是否所有价格点都已经按顺序触发
-  if (threshold.reachedPrices.length === validPrices.length) {
-    threshold.isAlerting = true
-    triggerAlert(symbol, currentPrice, 'all')
-  }
 
   // 更新最后价格
   threshold.lastPrice = priceData.currentPrice
 }
 
 // 触发预警
-const triggerAlert = (symbol: string, currentPrice: number, type: 'up' | 'down' | 'all') => {
+const triggerAlert = (symbol: string, currentPrice: number, type: 'up' | 'down') => {
   const coin = supportedCoins.find(c => c.symbol === symbol)
   if (!coin) return
 
   const threshold = savedThresholds.value[symbol]
   if (!threshold) return
 
-  const message = type === 'all' 
-    ? `${coin.name}已按顺序触发所有预警价格点：${threshold.reachedPrices.join(' -> ')}\n当前价格: ${currentPrice.toFixed(2)} USDT`
-    : `${coin.name}价格${type === 'up' ? '上涨' : '下跌'}穿过预警点`
+  const message = `${coin.name}价格${type === 'up' ? '上涨' : '下跌'}穿过预警点 ${threshold.reachedPrices[0]} USDT\n当前价格: ${currentPrice.toFixed(2)} USDT`
 
   // 显示需要手动关闭的警报对话框
   showDialog({
@@ -681,7 +672,8 @@ const testNotifications = () => {
                         class="threshold-price"
                         :class="{
                           'price-reached': isReached(price, currentCoin.symbol),
-                          'price-pending': !isReached(price, currentCoin.symbol)
+                          'price-triggered': savedThresholds[currentCoin.symbol].reachedPrices.includes(price),
+                          'price-pending': !isReached(price, currentCoin.symbol) && !savedThresholds[currentCoin.symbol].reachedPrices.includes(price)
                         }"
                   >
                     <span class="price-index">{{ index + 1 }}</span>
@@ -724,7 +716,8 @@ const testNotifications = () => {
                         class="threshold-price"
                         :class="{
                           'price-reached': isReached(price, symbol),
-                          'price-pending': !isReached(price, symbol)
+                          'price-triggered': savedThresholds[symbol].reachedPrices.includes(price),
+                          'price-pending': !isReached(price, symbol) && !savedThresholds[symbol].reachedPrices.includes(price)
                         }"
                   >
                     <span class="price-index">{{ index + 1 }}</span>
@@ -1117,6 +1110,7 @@ const testNotifications = () => {
   gap: 4px;
   width: 100%;
   box-sizing: border-box;
+  transition: all 0.3s ease;
 }
 
 .threshold-price.price-pending {
@@ -1129,6 +1123,29 @@ const testNotifications = () => {
   background: #fffbe8;
   color: #ed6a0c;
   border: 1px solid #ed6a0c;
+  animation: highlight 1s ease-in-out;
+}
+
+.threshold-price.price-triggered {
+  background: #fff7e6;
+  color: #fa8c16;
+  border: 1px solid #fa8c16;
+  animation: highlight 1s ease-in-out;
+}
+
+@keyframes highlight {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(250, 140, 22, 0.4);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 0 0 10px rgba(250, 140, 22, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(250, 140, 22, 0);
+  }
 }
 
 .price-index {
