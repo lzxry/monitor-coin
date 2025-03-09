@@ -176,6 +176,7 @@ const high24h = ref(0)
 const low24h = ref(0)
 const volume24h = ref(0)
 const isRefreshing = ref(false)
+let ws: WebSocket | null = null
 
 const alertForm = ref({
   type: 'greater' as 'greater' | 'less',
@@ -230,39 +231,32 @@ const isPricePointReached = (price: number) => {
     : currentPrice.value < price
 }
 
-const fetchBTCData = async () => {
-  console.log('开始获取数据:', new Date().toLocaleTimeString())
-  try {
-    const response = await axios.get('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT', {
-      // 添加时间戳防止缓存
-      params: {
-        _t: Date.now()
-      }
-    })
-    const data = response.data
-    console.log('获取到新价格:', data.lastPrice)
-    
-    currentPrice.value = parseFloat(data.lastPrice)
-    priceChange24h.value = parseFloat(data.priceChangePercent)
-    high24h.value = parseFloat(data.highPrice)
-    low24h.value = parseFloat(data.lowPrice)
-    volume24h.value = parseFloat(data.volume)
-    
-    // 检查预警条件
+const connectWebSocket = () => {
+  console.log('开始建立WebSocket连接')
+  if (ws) {
+    ws.close()
+  }
+  
+  ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@ticker')
+  
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    currentPrice.value = parseFloat(data.c)
+    priceChange24h.value = parseFloat(data.P)
+    high24h.value = parseFloat(data.h)
+    low24h.value = parseFloat(data.l)
+    volume24h.value = parseFloat(data.v)
     checkAlert()
-    
-    // 确保下一次更新
-    if (!document.hidden) {
-      console.log('安排下一次更新')
-      scheduleNextUpdate()
-    }
-  } catch (error) {
-    console.error('获取数据失败:', error)
-    // 发生错误时也要确保继续更新
-    if (!document.hidden) {
-      console.log('发生错误，重试更新')
-      scheduleNextUpdate()
-    }
+  }
+  
+  ws.onclose = () => {
+    console.log('WebSocket连接关闭，尝试重连')
+    setTimeout(connectWebSocket, 1000)
+  }
+  
+  ws.onerror = (error) => {
+    console.error('WebSocket错误:', error)
+    ws?.close()
   }
 }
 
@@ -358,34 +352,16 @@ const saveAlertSettings = () => {
   }
 }
 
-let updateTimeout: number | null = null
-
-const scheduleNextUpdate = () => {
-  console.log('scheduleNextUpdate 被调用')
-  if (updateTimeout) {
-    console.log('清除现有的超时器')
-    clearTimeout(updateTimeout)
-  }
-  console.log('设置新的超时器')
-  updateTimeout = window.setTimeout(() => {
-    console.log('超时器触发，调用 fetchBTCData')
-    fetchBTCData()
-  }, 1000)
-}
-
 const handleVisibilityChange = () => {
   console.log('可见性变化:', document.hidden ? '隐藏' : '可见')
   if (document.hidden) {
-    // 页面隐藏时清除更新
-    if (updateTimeout) {
-      console.log('页面隐藏，清除更新')
-      clearTimeout(updateTimeout)
-      updateTimeout = null
-    }
+    // 页面隐藏时关闭WebSocket
+    console.log('页面隐藏，关闭WebSocket')
+    ws?.close()
   } else {
-    // 页面可见时立即获取数据并恢复更新
-    console.log('页面可见，重新开始更新')
-    fetchBTCData()
+    // 页面可见时重新连接WebSocket
+    console.log('页面可见，重新连接WebSocket')
+    connectWebSocket()
   }
 }
 
@@ -428,12 +404,10 @@ onMounted(() => {
     }
   }
   
-  // 立即获取第一次数据
-  console.log('获取首次数据')
-  fetchBTCData()
+  // 建立WebSocket连接
+  connectWebSocket()
   
   // 添加页面可见性监听
-  console.log('添加可见性监听器')
   document.addEventListener('visibilitychange', handleVisibilityChange)
   
   // 加载通知设置
@@ -452,8 +426,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (updateTimeout) {
-    clearTimeout(updateTimeout)
+  // 关闭WebSocket连接
+  if (ws) {
+    ws.close()
   }
   if (flashTimer) {
     clearTimeout(flashTimer)
