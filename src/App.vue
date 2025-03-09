@@ -185,7 +185,19 @@ const checkPriceChangeAndNotify = (symbol: string) => {
     }
     
     // 显示需要手动关闭的警报对话框
-    showAlertDialog(message)
+    showDialog({
+      title: '价格预警',
+      message,
+      confirmButtonText: '知道了',
+      showCancelButton: false,
+      beforeClose: (action) => {
+        if (action === 'confirm') {
+          stopFlashing()
+          stopAlertSound()
+        }
+        return true
+      }
+    })
     
     lastNotificationPrice[symbol] = currentPrice
   }
@@ -334,20 +346,33 @@ const triggerAlert = (symbol: string, currentPrice: number, type: 'up' | 'down' 
     title: '价格预警',
     message,
     confirmButtonText: '知道了',
-    showCancelButton: false
-  }).then(() => {
-    // 用户点击确认后，重置预警状态
-    if (savedThresholds.value[symbol]) {
-      savedThresholds.value[symbol].isAlerting = false
-      savedThresholds.value[symbol].reachedPrices = []
+    showCancelButton: false,
+    beforeClose: (action) => {
+      if (action === 'confirm') {
+        // 用户点击确认后，重置预警状态
+        if (savedThresholds.value[symbol]) {
+          savedThresholds.value[symbol].isAlerting = false
+          savedThresholds.value[symbol].reachedPrices = []
+        }
+        // 停止声音提醒
+        if (audioInstance) {
+          audioInstance.pause()
+          audioInstance.currentTime = 0
+        }
+      }
+      return true
     }
   })
   
   // 播放提示音
-  const audio = new Audio('/alert.mp3')
-  audio.play().catch(() => {
-    // 忽略自动播放限制错误
-  })
+  if (notificationSettings.value.soundEnabled) {
+    playAlertSound()
+  }
+  
+  // 开始闪烁
+  if (notificationSettings.value.flashEnabled) {
+    startFlashing()
+  }
 }
 
 // 保存预警设置
@@ -636,6 +661,12 @@ const testNotifications = () => {
             <div class="alert-info">
               <div class="alert-header">
                 <span>价格穿过以下点位时预警</span>
+                <van-tag 
+                  :type="savedThresholds[currentCoin.symbol].isAlerting ? 'warning' : 'success'"
+                  round
+                >
+                  {{ savedThresholds[currentCoin.symbol].isAlerting ? '预警中' : '监控中' }}
+                </van-tag>
               </div>
               <div class="threshold-prices">
                 <span v-for="(price, index) in savedThresholds[currentCoin.symbol].prices" 
@@ -671,6 +702,13 @@ const testNotifications = () => {
                   {{ supportedCoins.find(c => c.symbol === symbol)?.name || symbol }}:
                 </span>
                 <span>价格穿过以下点位时预警</span>
+                <van-tag 
+                  :type="savedThresholds[symbol].isAlerting ? 'warning' : 'success'"
+                  round
+                  style="margin-left: auto"
+                >
+                  {{ savedThresholds[symbol].isAlerting ? '预警中' : '监控中' }}
+                </van-tag>
               </div>
               <div class="threshold-prices">
                 <span v-for="(price, index) in savedThresholds[symbol].prices" 
@@ -694,22 +732,24 @@ const testNotifications = () => {
 
     <!-- 底部按钮 -->
     <div class="bottom-buttons">
-      <van-button 
-        type="primary" 
-        block 
-        size="large"
-        @click="showNotificationSettings = true"
-      >
-        通知设置
-      </van-button>
-      <van-button 
-        type="warning" 
-        block 
-        size="large"
-        @click="openAlertSettings"
-      >
-        预警设置
-      </van-button>
+      <div class="button-row">
+        <van-button 
+          type="primary" 
+          block 
+          size="large"
+          @click="showNotificationSettings = true"
+        >
+          通知设置
+        </van-button>
+        <van-button 
+          type="warning" 
+          block 
+          size="large"
+          @click="openAlertSettings"
+        >
+          预警设置
+        </van-button>
+      </div>
     </div>
 
     <!-- 币种选择弹窗 -->
@@ -1112,11 +1152,17 @@ const testNotifications = () => {
   bottom: 0;
   padding: 16px;
   background: #fff;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05);
   padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+.button-row {
+  display: flex;
+  gap: 12px;
+}
+
+.button-row .van-button {
+  flex: 1;
 }
 
 .popup-content {
