@@ -9,6 +9,14 @@
                 <div class="card-header">
                   <span>BTC/USDT</span>
                   <div class="header-controls">
+                    <el-button 
+                      type="primary"
+                      size="small"
+                      @click="manualRefresh"
+                      :loading="isRefreshing"
+                    >
+                      刷新
+                    </el-button>
                     <el-popover
                       placement="bottom"
                       :width="200"
@@ -167,6 +175,7 @@ const priceChange24h = ref(0)
 const high24h = ref(0)
 const low24h = ref(0)
 const volume24h = ref(0)
+const isRefreshing = ref(false)
 
 const alertForm = ref({
   type: 'greater' as 'greater' | 'less',
@@ -222,6 +231,7 @@ const isPricePointReached = (price: number) => {
 }
 
 const fetchBTCData = async () => {
+  console.log('开始获取数据:', new Date().toLocaleTimeString())
   try {
     const response = await axios.get('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT', {
       // 添加时间戳防止缓存
@@ -230,6 +240,7 @@ const fetchBTCData = async () => {
       }
     })
     const data = response.data
+    console.log('获取到新价格:', data.lastPrice)
     
     currentPrice.value = parseFloat(data.lastPrice)
     priceChange24h.value = parseFloat(data.priceChangePercent)
@@ -242,12 +253,14 @@ const fetchBTCData = async () => {
     
     // 确保下一次更新
     if (!document.hidden) {
+      console.log('安排下一次更新')
       scheduleNextUpdate()
     }
   } catch (error) {
     console.error('获取数据失败:', error)
     // 发生错误时也要确保继续更新
     if (!document.hidden) {
+      console.log('发生错误，重试更新')
       scheduleNextUpdate()
     }
   }
@@ -348,26 +361,49 @@ const saveAlertSettings = () => {
 let updateTimeout: number | null = null
 
 const scheduleNextUpdate = () => {
+  console.log('scheduleNextUpdate 被调用')
   if (updateTimeout) {
+    console.log('清除现有的超时器')
     clearTimeout(updateTimeout)
   }
-  updateTimeout = window.setTimeout(fetchBTCData, 1000)
+  console.log('设置新的超时器')
+  updateTimeout = window.setTimeout(() => {
+    console.log('超时器触发，调用 fetchBTCData')
+    fetchBTCData()
+  }, 1000)
 }
 
 const handleVisibilityChange = () => {
+  console.log('可见性变化:', document.hidden ? '隐藏' : '可见')
   if (document.hidden) {
     // 页面隐藏时清除更新
     if (updateTimeout) {
+      console.log('页面隐藏，清除更新')
       clearTimeout(updateTimeout)
       updateTimeout = null
     }
   } else {
     // 页面可见时立即获取数据并恢复更新
+    console.log('页面可见，重新开始更新')
     fetchBTCData()
   }
 }
 
+const manualRefresh = async () => {
+  console.log('手动刷新被调用')
+  try {
+    isRefreshing.value = true
+    await fetchBTCData()
+  } catch (error) {
+    console.error('手动刷新失败:', error)
+    ElMessage.error('手动刷新失败')
+  } finally {
+    isRefreshing.value = false
+  }
+}
+
 onMounted(() => {
+  console.log('组件挂载')
   if (Notification.permission !== 'granted') {
     Notification.requestPermission()
   }
@@ -393,9 +429,11 @@ onMounted(() => {
   }
   
   // 立即获取第一次数据
+  console.log('获取首次数据')
   fetchBTCData()
   
   // 添加页面可见性监听
+  console.log('添加可见性监听器')
   document.addEventListener('visibilitychange', handleVisibilityChange)
   
   // 加载通知设置
