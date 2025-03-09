@@ -85,7 +85,7 @@ const stopFlashing = () => {
     flashInterval = null
   }
   const priceGroup = document.querySelector('.price-group')
-  if (priceGroup) {
+  if (priceGroup && priceGroup instanceof HTMLElement) {
     priceGroup.classList.remove('flashing')
     priceGroup.style.backgroundColor = ''
   }
@@ -474,8 +474,6 @@ const isLowPrice = (price: string, symbol: string) => {
 const isReached = (price: string, symbol: string) => {
   const currentPrice = parseFloat(priceDataMap.value[symbol]?.currentPrice || '0')
   const targetPrice = parseFloat(price)
-  
-  // 如果当前价格已经超过了预警价格，就显示黄色
   return currentPrice >= targetPrice
 }
 
@@ -669,17 +667,17 @@ const testNotifications = () => {
                 </van-tag>
               </div>
               <div class="threshold-prices">
-                <span v-for="(price, index) in savedThresholds[currentCoin.symbol].prices" 
+                <span v-for="(priceValue, index) in savedThresholds[currentCoin.symbol].prices" 
                       :key="index"
-                      v-if="price !== '0'"
+                      v-if="priceValue !== '0'"
                       class="threshold-price"
                       :class="{
-                        'price-reached': isReached(price, currentCoin.symbol),
-                        'price-pending': !isReached(price, currentCoin.symbol)
+                        'price-reached': isReached(priceValue, currentCoin.symbol),
+                        'price-pending': !isReached(priceValue, currentCoin.symbol)
                       }"
                 >
                   <span class="price-index">{{ index + 1 }}</span>
-                  {{ price }} USDT
+                  {{ priceValue }} USDT
                 </span>
               </div>
             </div>
@@ -711,17 +709,17 @@ const testNotifications = () => {
                 </van-tag>
               </div>
               <div class="threshold-prices">
-                <span v-for="(price, index) in savedThresholds[symbol].prices" 
+                <span v-for="(priceValue, index) in savedThresholds[symbol].prices" 
                       :key="index"
-                      v-if="price !== '0'"
+                      v-if="priceValue !== '0'"
                       class="threshold-price"
                       :class="{
-                        'price-reached': isReached(price, symbol),
-                        'price-pending': !isReached(price, symbol)
+                        'price-reached': isReached(priceValue, symbol),
+                        'price-pending': !isReached(priceValue, symbol)
                       }"
                 >
                   <span class="price-index">{{ index + 1 }}</span>
-                  {{ price }} USDT
+                  {{ priceValue }} USDT
                 </span>
               </div>
             </div>
