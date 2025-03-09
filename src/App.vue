@@ -1,905 +1,1222 @@
-<template>
-  <div class="app-container">
-    <el-container>
-      <el-main>
-        <el-row :gutter="20">
-          <el-col :xs="24" :sm="24" :md="12" :lg="12" :xl="12">
-            <el-card class="price-card">
-              <template #header>
-                <div class="card-header">
-                  <span>BTC/USDT</span>
-                  <div class="header-controls">
-                    <el-tag 
-                      :type="isConnected ? 'success' : (isConnecting ? 'warning' : 'danger')"
-                      size="small"
-                      class="connection-status"
-                      @click="!isConnected && !isConnecting ? connectWebSocket() : null"
-                    >
-                      {{ isConnected ? '已连接' : (isConnecting ? '连接中' : '未连接') }}
-                    </el-tag>
-                    <el-popover
-                      placement="bottom"
-                      :width="200"
-                      trigger="click"
-                    >
-                      <template #reference>
-                        <el-button 
-                          :type="soundEnabled || flashEnabled || webhookEnabled ? 'primary' : 'info'" 
-                          size="small"
-                          class="notification-btn"
-                        >
-                          通知设置
-                          <el-badge :is-dot="soundEnabled || flashEnabled || webhookEnabled" />
-                        </el-button>
-                      </template>
-                      <div class="notification-settings">
-                        <div class="setting-item">
-                          <span>声音提醒</span>
-                          <el-switch v-model="soundEnabled" />
-                        </div>
-                        <div class="setting-item">
-                          <span>价格闪烁</span>
-                          <el-switch v-model="flashEnabled" />
-                        </div>
-                        <div class="setting-item">
-                          <span>微信通知</span>
-                          <el-switch v-model="webhookEnabled" />
-                        </div>
-                        <div class="webhook-input" v-if="webhookEnabled">
-                          <el-input
-                            v-model="webhookUrl"
-                            placeholder="请输入Webhook地址"
-                            size="small"
-                          />
-                        </div>
-                      </div>
-                    </el-popover>
-                    <el-tag :type="priceChangeColor" class="price-change">
-                      {{ priceChange24h }}%
-                    </el-tag>
-                  </div>
-                </div>
-              </template>
-              <div class="price-content">
-                <div class="price-title">
-                  <span>实时价格：</span>
-                  <h2 :class="{ 'price-flash': isFlashing && flashEnabled }">{{ currentPrice }}</h2>
-                </div>
-                <div class="threshold-info" v-if="savedThreshold">
-                  <el-alert
-                    :title="'预警条件: ' + (savedThreshold.type === 'greater' ? '向上' : '向下') + '突破'"
-                    :type="isThresholdTriggered ? 'error' : 'success'"
-                    show-icon
-                    :closable="false"
-                  >
-                    <template #description>
-                      <div class="price-points-progress">
-                        <div v-for="(price, index) in [savedThreshold.price1, savedThreshold.price2, savedThreshold.price3]" 
-                          :key="index"
-                          class="price-point-status"
-                          :class="{
-                            'reached': isPricePointReached(price)
-                          }"
-                        >
-                          价格点{{ index + 1 }}: {{ price }}
-                          <el-tag size="small" :type="isPricePointReached(price) ? 'success' : ''">
-                            {{ isPricePointReached(price) ? '已达成' : '未达成' }}
-                          </el-tag>
-                        </div>
-                      </div>
-                    </template>
-                  </el-alert>
-                </div>
-                <div class="price-details">
-                  <div class="detail-item">
-                    <span>24h高：</span>
-                    <span>{{ high24h }}</span>
-                  </div>
-                  <div class="detail-item">
-                    <span>24h低：</span>
-                    <span>{{ low24h }}</span>
-                  </div>
-                  <div class="detail-item">
-                    <span>24h成交量：</span>
-                    <span>{{ volume24h }}</span>
-                  </div>
-                </div>
-              </div>
-            </el-card>
-          </el-col>
-          <el-col :xs="24" :sm="24" :md="12" :lg="12" :xl="12">
-            <el-card class="alert-card">
-              <template #header>
-                <div class="card-header">
-                  <span>价格预警设置</span>
-                </div>
-              </template>
-              <div class="alert-content">
-                <el-form :model="alertForm" label-width="120px">
-                  <el-form-item label="预警类型">
-                    <el-radio-group v-model="alertForm.type">
-                      <el-radio :value="'greater'">向上突破</el-radio>
-                      <el-radio :value="'less'">向下突破</el-radio>
-                    </el-radio-group>
-                  </el-form-item>
-                  <el-form-item label="价格点1">
-                    <el-input-number 
-                      v-model="alertForm.price1" 
-                      :precision="2" 
-                      :step="100"
-                      :min="0"
-                      style="width: 160px"
-                      :controls="false"
-                    />
-                  </el-form-item>
-                  <el-form-item label="价格点2">
-                    <el-input-number 
-                      v-model="alertForm.price2" 
-                      :precision="2" 
-                      :step="100"
-                      :min="0"
-                      style="width: 160px"
-                    />
-                  </el-form-item>
-                  <el-form-item label="价格点3">
-                    <el-input-number 
-                      v-model="alertForm.price3" 
-                      :precision="2" 
-                      :step="100"
-                      :min="0"
-                      style="width: 160px"
-                    />
-                  </el-form-item>
-                  <el-form-item>
-                    <el-button type="primary" @click="saveAlertSettings">
-                      保存设置
-                    </el-button>
-                  </el-form-item>
-                </el-form>
-              </div>
-            </el-card>
-          </el-col>
-        </el-row>
-      </el-main>
-    </el-container>
-  </div>
-</template>
+<script lang="ts" setup>
+import { ref, onMounted, onUnmounted } from 'vue'
+import { showToast, showDialog } from 'vant'
 
-<script setup lang="ts">
-import { ref, onMounted, computed, onBeforeUnmount, watch } from 'vue'
-import axios from 'axios'
-import { ElMessage } from 'element-plus'
+// 支持的币种列表
+const supportedCoins = [
+  { symbol: 'BTCUSDT', name: 'BTC', icon: '₿' },
+  { symbol: 'ETHUSDT', name: 'ETH', icon: 'Ξ' },
+  { symbol: 'BNBUSDT', name: 'BNB', icon: 'BNB' },
+  { symbol: 'DOGEUSDT', name: 'DOGE', icon: 'Ð' },
+  { symbol: 'XRPUSDT', name: 'XRP', icon: 'XRP' }
+]
 
-// 动态导入并初始化vConsole
-if (import.meta.env.DEV) {
-  import('vconsole').then(VConsole => {
-    new VConsole.default()
+// 当前选择的币种
+const currentCoin = ref(supportedCoins[0])
+const showCoinPicker = ref(false)
+
+// WebSocket连接状态和实例
+const wsConnected = ref(false)
+let ws: WebSocket | null = null
+
+// 价格相关数据
+interface PriceData {
+  symbol: string
+  currentPrice: string
+  priceChange: number
+  high24h: string
+  low24h: string
+  volume: string
+  quoteVolume: string
+  openPrice: string
+  priceChangeAmount: string
+}
+
+const priceDataMap = ref<Record<string, PriceData>>({})
+
+// 通知设置
+const showNotificationSettings = ref(false)
+const notificationSettings = ref({
+  enabled: false,
+  threshold: '1',
+  thresholdEnabled: false,    // 添加价格变化阈值开关
+  flashEnabled: false,    // 闪烁通知
+  soundEnabled: false,    // 声音通知
+  webhookEnabled: false,  // Webhook通知
+  webhookUrl: ''         // Webhook URL
+})
+let lastNotificationPrice: Record<string, number> = {}
+let flashInterval: number | null = null
+let audioInstance: HTMLAudioElement | null = null
+const alertAudioUrl = '/alert.mp3'
+
+// 预警设置
+const showAlertSettings = ref(false)
+const alertPrices = ref({
+  price1: '',
+  price2: '',
+  price3: ''
+})
+const alertType = ref('cross')
+const isAlertSettingsUnlocked = ref(false)
+const savedThresholds = ref<Record<string, {
+  prices: string[];
+  lastPrice: string;
+  reachedPrices: string[];  // 修改为数组，记录按顺序触发的价格点
+  isAlerting: boolean;
+}>>({})
+
+// 触发闪烁效果
+const startFlashing = () => {
+  if (flashInterval) {
+    clearInterval(flashInterval)
+    flashInterval = null
+  }
+  const priceGroup = document.querySelector('.price-group')
+  if (priceGroup) {
+    priceGroup.classList.add('flashing')
+  }
+}
+
+// 停止闪烁
+const stopFlashing = () => {
+  if (flashInterval) {
+    clearInterval(flashInterval)
+    flashInterval = null
+  }
+  const priceGroup = document.querySelector('.price-group')
+  if (priceGroup) {
+    priceGroup.classList.remove('flashing')
+    priceGroup.style.backgroundColor = ''
+  }
+}
+
+// 播放声音
+const playAlertSound = () => {
+  if (notificationSettings.value.soundEnabled) {
+    if (!audioInstance) {
+      audioInstance = new Audio(alertAudioUrl)
+      audioInstance.loop = true
+    }
+    audioInstance.play().catch(() => {
+      console.error('音频播放失败')
+    })
+  }
+}
+
+// 停止声音
+const stopAlertSound = () => {
+  if (audioInstance) {
+    audioInstance.pause()
+    audioInstance.currentTime = 0
+  }
+}
+
+// 显示警报对话框
+const showAlertDialog = (message: string) => {
+  showDialog({
+    title: '价格预警',
+    message,
+    confirmButtonText: '知道了',
+    showCancelButton: false,
+  }).then(() => {
+    // 用户点击确认后停止警报
+    stopFlashing()
+    stopAlertSound()
   })
 }
 
-const currentPrice = ref(0)
-const priceChange24h = ref(0)
-const high24h = ref(0)
-const low24h = ref(0)
-const volume24h = ref(0)
-const isConnected = ref(false)
-const isConnecting = ref(false)
-let ws: WebSocket | null = null
-let reconnectTimeout: number | null = null
-let heartbeatInterval: number | null = null
-
-// 检测是否是iOS设备
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
-
-const alertForm = ref({
-  type: 'greater' as 'greater' | 'less',
-  price1: 0,
-  price2: 0,
-  price3: 0
-})
-
-const audio = new Audio('/alert.mp3')
-
-const soundEnabled = ref(true)
-const flashEnabled = ref(true)
-const isFlashing = ref(false)
-let flashTimer: number | null = null
-
-const webhookEnabled = ref(false)
-const webhookUrl = ref('')
-
-interface AlertSettings {
-  type: 'greater' | 'less'
-  price1: number
-  price2: number
-  price3: number
+// 发送Webhook通知
+const sendWebhookNotification = async (message: string) => {
+  if (!notificationSettings.value.webhookEnabled || !notificationSettings.value.webhookUrl) return
+  
+  try {
+    await fetch(notificationSettings.value.webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        message,
+        timestamp: new Date().toISOString()
+      })
+    })
+  } catch (error) {
+    console.error('Webhook通知发送失败:', error)
+  }
 }
 
-const savedThreshold = ref<AlertSettings | null>(null)
-
-const priceChangeColor = computed(() => {
-  return priceChange24h.value >= 0 ? 'success' : 'danger'
-})
-
-const isThresholdTriggered = computed(() => {
-  if (!savedThreshold.value) return false
+// 检查价格变化并发送通知
+const checkPriceChangeAndNotify = (symbol: string) => {
+  if (!notificationSettings.value.enabled || !notificationSettings.value.thresholdEnabled) return
   
-  const prices = [
-    savedThreshold.value.price1,
-    savedThreshold.value.price2,
-    savedThreshold.value.price3
-  ]
+  const priceData = priceDataMap.value[symbol]
+  if (!priceData) return
   
-  return prices.every(price => 
-    savedThreshold.value?.type === 'greater'
-      ? currentPrice.value > price
-      : currentPrice.value < price
-  )
-})
-
-const isPricePointReached = (price: number) => {
-  if (!savedThreshold.value) return false
-  return savedThreshold.value.type === 'greater'
-    ? currentPrice.value > price
-    : currentPrice.value < price
+  const currentPrice = parseFloat(priceData.currentPrice)
+  const lastPrice = lastNotificationPrice[symbol]
+  
+  if (!lastPrice) {
+    lastNotificationPrice[symbol] = currentPrice
+    return
+  }
+  
+  const changePercent = Math.abs((currentPrice - lastPrice) / lastPrice * 100)
+  const threshold = parseFloat(notificationSettings.value.threshold) || 1
+  
+  if (changePercent >= threshold) {
+    const coin = supportedCoins.find(c => c.symbol === symbol)
+    if (!coin) return
+    
+    const direction = currentPrice > lastPrice ? '上涨' : '下跌'
+    const message = `${coin.name}价格${direction}${changePercent.toFixed(2)}%\n当前价格: ${currentPrice.toFixed(2)} USDT`
+    
+    // 触发各种通知
+    if (notificationSettings.value.flashEnabled) {
+      startFlashing()
+    }
+    
+    if (notificationSettings.value.soundEnabled) {
+      playAlertSound()
+    }
+    
+    if (notificationSettings.value.webhookEnabled) {
+      sendWebhookNotification(message)
+    }
+    
+    // 显示需要手动关闭的警报对话框
+    showAlertDialog(message)
+    
+    lastNotificationPrice[symbol] = currentPrice
+  }
 }
 
+// 保存设置到localStorage
+const saveSettings = () => {
+  try {
+    localStorage.setItem('monitorSettings', JSON.stringify({
+      notificationSettings: notificationSettings.value,
+      savedThresholds: savedThresholds.value,
+      currentCoin: currentCoin.value.symbol,
+      lastNotificationPrice
+    }))
+  } catch (error) {
+    console.error('保存设置失败:', error)
+  }
+}
+
+// 更新通知设置
+const updateNotificationSettings = () => {
+  const threshold = parseFloat(notificationSettings.value.threshold) || 1
+  notificationSettings.value.threshold = threshold.toString()
+  
+  if (!notificationSettings.value.enabled) {
+    lastNotificationPrice = {}
+    stopFlashing()
+    stopAlertSound()
+  } else {
+    // 重置所有币种的最后通知价格
+    supportedCoins.forEach(coin => {
+      const priceData = priceDataMap.value[coin.symbol]
+      if (priceData) {
+        lastNotificationPrice[coin.symbol] = parseFloat(priceData.currentPrice)
+      }
+    })
+  }
+  
+  // 保存设置
+  saveSettings()
+}
+
+// 连接WebSocket
 const connectWebSocket = () => {
-  if (isConnecting.value || (ws && ws.readyState === WebSocket.CONNECTING)) {
-    console.log('[Debug] WebSocket正在连接中，忽略重复连接请求')
+  if (ws) {
+    ws.close()
+  }
+
+  const symbols = supportedCoins.map(coin => coin.symbol.toLowerCase())
+  const streams = symbols.map(symbol => `${symbol}@ticker`).join('/')
+  ws = new WebSocket(`wss://stream.binance.com:9443/ws/${streams}`)
+  
+  ws.onopen = () => {
+    wsConnected.value = true
+  }
+  
+  ws.onclose = () => {
+    wsConnected.value = false
+    // 尝试重连
+    setTimeout(connectWebSocket, 3000)
+  }
+  
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    const symbol = data.s
+    
+    priceDataMap.value[symbol] = {
+      symbol,
+      currentPrice: parseFloat(data.c).toFixed(2),
+      priceChange: parseFloat(data.P),
+      high24h: parseFloat(data.h).toFixed(2),
+      low24h: parseFloat(data.l).toFixed(2),
+      volume: parseFloat(data.v).toFixed(2),
+      quoteVolume: parseFloat(data.q).toFixed(2),
+      openPrice: parseFloat(data.o).toFixed(2),
+      priceChangeAmount: parseFloat(data.p).toFixed(2)
+    }
+    
+    checkAlert(symbol)
+    checkPriceChangeAndNotify(symbol)
+  }
+}
+
+// 检查预警条件
+const checkAlert = (symbol: string) => {
+  const threshold = savedThresholds.value[symbol]
+  if (!threshold) return
+  
+  const priceData = priceDataMap.value[symbol]
+  if (!priceData) return
+
+  const currentPrice = parseFloat(priceData.currentPrice)
+  const lastPrice = parseFloat(threshold.lastPrice)
+  
+  if (isNaN(lastPrice)) {
+    threshold.lastPrice = priceData.currentPrice
     return
   }
 
-  console.log('[Debug] 开始建立WebSocket连接，设备信息:', {
-    userAgent: navigator.userAgent,
-    isIOS: isIOS,
-    platform: navigator.platform
+  // 如果正在报警中，直接返回
+  if (threshold.isAlerting) return
+
+  // 获取所有有效的预警价格
+  const validPrices = threshold.prices.filter(p => p !== '0')
+  if (validPrices.length === 0) return
+
+  // 检查价格点是否按顺序被触发
+  validPrices.forEach(priceStr => {
+    const price = parseFloat(priceStr)
+    if (isNaN(price)) return
+
+    // 检查是否是下一个需要触发的价格点
+    const isNextPrice = threshold.reachedPrices.length === validPrices.indexOf(priceStr)
+
+    // 如果是下一个价格点，并且价格穿过了这个点，就记录下来
+    if (isNextPrice && ((lastPrice < price && currentPrice >= price) || 
+        (lastPrice > price && currentPrice <= price))) {
+      threshold.reachedPrices.push(priceStr)
+    }
+  })
+
+  // 检查是否所有价格点都已经按顺序触发
+  if (threshold.reachedPrices.length === validPrices.length) {
+    threshold.isAlerting = true
+    triggerAlert(symbol, currentPrice, 'all')
+  }
+
+  // 更新最后价格
+  threshold.lastPrice = priceData.currentPrice
+}
+
+// 触发预警
+const triggerAlert = (symbol: string, currentPrice: number, type: 'up' | 'down' | 'all') => {
+  const coin = supportedCoins.find(c => c.symbol === symbol)
+  if (!coin) return
+
+  const threshold = savedThresholds.value[symbol]
+  if (!threshold) return
+
+  const message = type === 'all' 
+    ? `${coin.name}已按顺序触发所有预警价格点：${threshold.reachedPrices.join(' -> ')}\n当前价格: ${currentPrice.toFixed(2)} USDT`
+    : `${coin.name}价格${type === 'up' ? '上涨' : '下跌'}穿过预警点`
+
+  // 显示需要手动关闭的警报对话框
+  showDialog({
+    title: '价格预警',
+    message,
+    confirmButtonText: '知道了',
+    showCancelButton: false
+  }).then(() => {
+    // 用户点击确认后，重置预警状态
+    if (savedThresholds.value[symbol]) {
+      savedThresholds.value[symbol].isAlerting = false
+      savedThresholds.value[symbol].reachedPrices = []
+    }
   })
   
-  isConnecting.value = true
-  
-  if (ws) {
-    console.log('[Debug] 关闭现有WebSocket连接')
-    try {
-      ws.onclose = null // 防止触发重连
-      ws.onerror = null
-      ws.onmessage = null
-      ws.onopen = null
-      ws.close()
-    } catch (e) {
-      console.error('[Debug] 关闭WebSocket出错:', e)
-    }
-    ws = null
-  }
-  
-  try {
-    // 对于iOS设备，使用完整的URL格式
-    const wsUrl = isIOS 
-      ? 'wss://stream.binance.com:9443/ws/btcusdt@ticker'
-      : 'wss://stream.binance.com:9443/ws/btcusdt@ticker'
-    
-    console.log('[Debug] 创建WebSocket，URL:', wsUrl)
-    ws = new WebSocket(wsUrl)
-    
-    // iOS Safari需要设置binaryType
-    if (isIOS) {
-      ws.binaryType = 'arraybuffer'
-    }
-    
-    // 设置更长的超时时间，iOS设备使用更长的超时
-    const timeoutDuration = isIOS ? 15000 : 10000
-    const connectionTimeout = setTimeout(() => {
-      if (ws && ws.readyState === WebSocket.CONNECTING) {
-        console.log('[Debug] 连接超时，关闭连接')
-        ws.close()
-        isConnecting.value = false
-        isConnected.value = false
-      }
-    }, timeoutDuration)
-    
-    ws.onopen = () => {
-      console.log('[Debug] WebSocket连接已建立，readyState:', ws?.readyState)
-      clearTimeout(connectionTimeout)
-      isConnected.value = true
-      isConnecting.value = false
-      
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout)
-        reconnectTimeout = null
-      }
-      
-      // 开始发送心跳，iOS设备使用更短的心跳间隔
-      if (heartbeatInterval) {
-        clearInterval(heartbeatInterval)
-      }
-      const heartbeatDelay = isIOS ? 15000 : 30000
-      heartbeatInterval = window.setInterval(() => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          console.log('[Debug] 发送心跳')
-          try {
-            ws.send(JSON.stringify({ method: "ping" }))
-          } catch (e) {
-            console.error('[Debug] 发送心跳失败:', e)
-            ws?.close()
-          }
-        }
-      }, heartbeatDelay)
-      
-      // iOS设备特殊处理：立即请求一次数据
-      if (isIOS) {
-        try {
-          ws.send(JSON.stringify({ method: "subscribe", params: ["btcusdt@ticker"] }))
-        } catch (e) {
-          console.error('[Debug] 订阅数据失败:', e)
-        }
-      }
-    }
-    
-    ws.onmessage = (event) => {
-      try {
-        console.log('[Debug] 收到WebSocket消息类型:', typeof event.data)
-        const rawData = event.data
-        let data
-        
-        if (typeof rawData === 'string') {
-          data = JSON.parse(rawData)
-        } else if (rawData instanceof ArrayBuffer) {
-          // 处理二进制数据
-          const text = new TextDecoder().decode(rawData)
-          data = JSON.parse(text)
-        } else {
-          console.error('[Debug] 未知的数据类型:', typeof rawData)
-          return
-        }
-        
-        if (data.c) {
-          console.log('[Debug] 解析价格数据:', {
-            price: data.c,
-            change: data.P,
-            high: data.h,
-            low: data.l
-          })
-          currentPrice.value = parseFloat(data.c)
-          priceChange24h.value = parseFloat(data.P)
-          high24h.value = parseFloat(data.h)
-          low24h.value = parseFloat(data.l)
-          volume24h.value = parseFloat(data.v)
-          checkAlert()
-        }
-      } catch (error) {
-        console.error('[Debug] 处理消息出错:', error, '原始数据类型:', typeof event.data)
-      }
-    }
-    
-    ws.onclose = (event) => {
-      console.log('[Debug] WebSocket连接关闭', {
-        code: event.code,
-        reason: event.reason,
-        wasClean: event.wasClean,
-        readyState: ws?.readyState
-      })
-      clearTimeout(connectionTimeout)
-      isConnected.value = false
-      isConnecting.value = false
-      
-      if (heartbeatInterval) {
-        clearInterval(heartbeatInterval)
-        heartbeatInterval = null
-      }
-      
-      if (!reconnectTimeout) {
-        const delay = isIOS ? 8000 : 3000 // iOS设备使用更长的重连延迟
-        console.log(`[Debug] 准备重新连接，延迟 ${delay}ms`)
-        reconnectTimeout = window.setTimeout(() => {
-          reconnectTimeout = null
-          if (!isConnected.value && !isConnecting.value) {
-            connectWebSocket()
-          }
-        }, delay)
-      }
-    }
-    
-    ws.onerror = (error) => {
-      console.error('[Debug] WebSocket错误:', error)
-      clearTimeout(connectionTimeout)
-      isConnected.value = false
-      isConnecting.value = false
-      
-      // iOS设备特殊错误处理
-      if (isIOS) {
-        console.log('[Debug] iOS设备WebSocket错误，准备重新连接')
-        if (ws) {
-          ws.onclose = null // 防止触发重连
-          ws.close()
-          ws = null
-        }
-        // 立即尝试重连
-        setTimeout(() => {
-          if (!isConnected.value && !isConnecting.value) {
-            connectWebSocket()
-          }
-        }, 1000)
-      }
-    }
-  } catch (error) {
-    console.error('[Debug] 创建WebSocket连接失败:', error)
-    isConnected.value = false
-    isConnecting.value = false
-  }
+  // 播放提示音
+  const audio = new Audio('/alert.mp3')
+  audio.play().catch(() => {
+    // 忽略自动播放限制错误
+  })
 }
 
-const checkAlert = () => {
-  const savedAlert = localStorage.getItem('btcAlert')
-  if (!savedAlert) return
-  
-  try {
-    const alertSettings = JSON.parse(savedAlert)
-    if (!alertSettings) return
-    
-    const prices = [
-      alertSettings.price1,
-      alertSettings.price2,
-      alertSettings.price3
-    ]
-    
-    const allReached = prices.every(price => 
-      alertSettings.type === 'greater'
-        ? currentPrice.value > price
-        : currentPrice.value < price
-    )
-
-    if (allReached) {
-      triggerAlert()
-    }
-  } catch (error) {
-    console.error('Error checking alerts:', error)
-  }
-}
-
-const triggerAlert = async () => {
-  if (soundEnabled.value) {
-    audio.play()
-  }
-  if (flashEnabled.value) {
-    startFlashing()
-  }
-  if (webhookEnabled.value && webhookUrl.value && savedThreshold.value) {
-    try {
-      const message = `BTC价格预警：当前价格 ${currentPrice.value} USDT\n` +
-        `预警类型：${savedThreshold.value.type === 'greater' ? '向上' : '向下'}突破\n` +
-        `价格点1：${savedThreshold.value.price1}\n` +
-        `价格点2：${savedThreshold.value.price2}\n` +
-        `价格点3：${savedThreshold.value.price3}`
-
-      await axios.get(webhookUrl.value, {
-        params: {
-          message
-        }
-      })
-    } catch (error) {
-      console.error('发送微信通知失败:', error)
-      ElMessage.error('发送微信通知失败')
-    }
-  }
-}
-
-const startFlashing = () => {
-  isFlashing.value = true
-  if (flashTimer) {
-    clearTimeout(flashTimer)
-  }
-  flashTimer = window.setTimeout(() => {
-    isFlashing.value = false
-  }, 3000)
-}
-
+// 保存预警设置
 const saveAlertSettings = () => {
-  console.log('Saving settings:', alertForm.value)
-  try {
-    // 验证所有价格都已设置
-    if (alertForm.value.price1 <= 0 || alertForm.value.price2 <= 0 || alertForm.value.price3 <= 0) {
-      ElMessage({
-        message: '请设置所有价格点',
-        type: 'warning'
-      })
-      return
-    }
-    
-    localStorage.setItem('btcAlert', JSON.stringify(alertForm.value))
-    savedThreshold.value = { ...alertForm.value }
-    ElMessage({
-      message: '预警设置已保存',
-      type: 'success'
-    })
-  } catch (error) {
-    console.error('Save settings error:', error)
-    ElMessage({
-      message: '保存设置失败',
-      type: 'error'
-    })
-  }
-}
+  const prices = [
+    alertPrices.value.price1,
+    alertPrices.value.price2,
+    alertPrices.value.price3
+  ].map(p => p.trim())
+   .map(p => p === '' ? '0' : p)
+   .map(p => {
+     const num = parseFloat(p)
+     return isNaN(num) ? '0' : num.toFixed(2)
+   })
 
-const handleVisibilityChange = () => {
-  console.log('可见性变化:', document.hidden ? '隐藏' : '可见')
-  // 不再在页面隐藏时关闭连接，保持后台运行
-  if (!document.hidden && !isConnected.value && !isConnecting.value) {
-    // 如果页面重新可见且没有连接，则重新连接
-    console.log('页面可见，检测到未连接，重新连接WebSocket')
-    connectWebSocket()
+  if (prices.every(p => p === '0')) {
+    return
   }
-}
 
-// 添加一个函数来处理iOS的特殊情况
-const setupIOSWakeLock = () => {
-  if (isIOS) {
-    // 创建一个隐藏的音频元素来保持后台运行
-    const silentAudio = new Audio()
-    silentAudio.setAttribute('src', 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA')
-    silentAudio.setAttribute('loop', 'true')
-    document.body.appendChild(silentAudio)
-    
-    // 在用户交互时播放
-    document.addEventListener('touchstart', () => {
-      silentAudio.play().catch(() => {
-        console.log('无法播放后台保活音频')
-      })
-    }, { once: true })
-  }
-}
-
-onMounted(() => {
-  console.log('组件挂载')
-  if (Notification.permission !== 'granted') {
-    Notification.requestPermission()
+  const currentPrice = priceDataMap.value[currentCoin.value.symbol]?.currentPrice || '0'
+  
+  savedThresholds.value[currentCoin.value.symbol] = {
+    prices,
+    lastPrice: currentPrice,
+    reachedPrices: [],  // 初始化为空数组
+    isAlerting: false
   }
   
-  // 设置iOS后台保活
-  setupIOSWakeLock()
+  showAlertSettings.value = false
   
-  // 加载预警设置
-  const savedAlert = localStorage.getItem('btcAlert')
+  // 清空输入
+  alertPrices.value = {
+    price1: '',
+    price2: '',
+    price3: ''
+  }
+  
+  // 保存设置
+  saveSettings()
+}
+
+// 清除预警
+const clearAlert = (symbol: string) => {
+  delete savedThresholds.value[symbol]
+  // 保存设置
+  saveSettings()
+}
+
+// 切换币种
+const switchCoin = (coin: typeof supportedCoins[0]) => {
+  currentCoin.value = coin
+  showCoinPicker.value = false
+  // 保存设置
+  saveSettings()
+}
+
+// 打开预警设置
+const openAlertSettings = () => {
+  isAlertSettingsUnlocked.value = false // 重置解锁状态
+  // 恢复已保存的预警价格到输入框
+  const savedAlert = savedThresholds.value[currentCoin.value.symbol]
   if (savedAlert) {
-    try {
-      const parsed = JSON.parse(savedAlert) as AlertSettings
-      if (parsed && parsed.type && typeof parsed.price1 === 'number' && 
-          typeof parsed.price2 === 'number' && typeof parsed.price3 === 'number') {
-        alertForm.value = {
-          type: parsed.type,
-          price1: parsed.price1,
-          price2: parsed.price2,
-          price3: parsed.price3
-        }
-        savedThreshold.value = { ...alertForm.value }
-      }
-    } catch (error) {
-      console.error('Error loading saved alert settings:', error)
+    alertPrices.value = {
+      price1: savedAlert.prices[0] === '0' ? '' : savedAlert.prices[0],
+      price2: savedAlert.prices[1] === '0' ? '' : savedAlert.prices[1],
+      price3: savedAlert.prices[2] === '0' ? '' : savedAlert.prices[2]
+    }
+  } else {
+    // 如果没有保存的预警，清空输入框
+    alertPrices.value = {
+      price1: '',
+      price2: '',
+      price3: ''
     }
   }
+  showAlertSettings.value = true
+}
+
+// 获取排序后的价格列表
+const getSortedPrices = (prices: string[]) => {
+  return [...prices]
+    .filter(p => p !== '0')
+    .sort((a, b) => parseFloat(a) - parseFloat(b))
+}
+
+// 判断是否为最高价格
+const isHighPrice = (price: string, symbol: string) => {
+  const currentPrice = parseFloat(priceDataMap.value[symbol]?.currentPrice || '0')
+  return parseFloat(price) > currentPrice
+}
+
+// 判断是否为最低价格
+const isLowPrice = (price: string, symbol: string) => {
+  const currentPrice = parseFloat(priceDataMap.value[symbol]?.currentPrice || '0')
+  return parseFloat(price) < currentPrice
+}
+
+// 判断是否达到预警条件
+const isReached = (price: string, symbol: string) => {
+  const currentPrice = parseFloat(priceDataMap.value[symbol]?.currentPrice || '0')
+  const targetPrice = parseFloat(price)
   
-  // 建立WebSocket连接
-  connectWebSocket()
-  
-  // 添加页面可见性监听
-  document.addEventListener('visibilitychange', handleVisibilityChange)
-  
-  // 加载通知设置
-  const savedSettings = localStorage.getItem('btcSettings')
+  // 如果当前价格已经超过了预警价格，就显示黄色
+  return currentPrice >= targetPrice
+}
+
+// 生命周期钩子
+onMounted(() => {
+  // 从localStorage加载设置
+  const savedSettings = localStorage.getItem('monitorSettings')
   if (savedSettings) {
     try {
       const settings = JSON.parse(savedSettings)
-      soundEnabled.value = settings.sound ?? true
-      flashEnabled.value = settings.flash ?? true
-      webhookEnabled.value = settings.webhook ?? false
-      webhookUrl.value = settings.webhookUrl ?? ''
+      // 恢复通知设置
+      if (settings.notificationSettings) {
+        notificationSettings.value = {
+          ...notificationSettings.value,
+          ...settings.notificationSettings
+        }
+      }
+      
+      // 恢复预警设置
+      if (settings.savedThresholds) {
+        savedThresholds.value = settings.savedThresholds
+      }
+
+      // 恢复当前选择的币种
+      if (settings.currentCoin) {
+        const savedCoin = supportedCoins.find(c => c.symbol === settings.currentCoin)
+        if (savedCoin) {
+          currentCoin.value = savedCoin
+        }
+      }
+
+      // 恢复最后通知价格
+      if (settings.lastNotificationPrice) {
+        lastNotificationPrice = settings.lastNotificationPrice
+      }
     } catch (error) {
-      console.error('Error loading notification settings:', error)
+      console.error('恢复设置失败:', error)
+      localStorage.removeItem('monitorSettings')
     }
   }
+
+  // 连接WebSocket
+  connectWebSocket()
 })
 
-onBeforeUnmount(() => {
-  // 关闭WebSocket连接
+onUnmounted(() => {
   if (ws) {
     ws.close()
-    ws = null
   }
-  if (reconnectTimeout) {
-    clearTimeout(reconnectTimeout)
-    reconnectTimeout = null
-  }
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval)
-    heartbeatInterval = null
-  }
-  if (flashTimer) {
-    clearTimeout(flashTimer)
-  }
-  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  stopFlashing()
+  stopAlertSound()
 })
 
-watch([soundEnabled, flashEnabled, webhookEnabled, webhookUrl], () => {
-  localStorage.setItem('btcSettings', JSON.stringify({
-    sound: soundEnabled.value,
-    flash: flashEnabled.value,
-    webhook: webhookEnabled.value,
-    webhookUrl: webhookUrl.value
-  }))
-})
+// 测试通知效果
+const testNotifications = () => {
+  console.log('测试通知开始', {
+    flash: notificationSettings.value.flashEnabled,
+    sound: notificationSettings.value.soundEnabled
+  })
 
-watch(() => alertForm.value.type, (newValue) => {
-  console.log('Alert type changed:', newValue)
-})
+  // 测试背景闪烁
+  if (notificationSettings.value.flashEnabled) {
+    startFlashing()
+  }
+
+  // 测试声音提醒
+  if (notificationSettings.value.soundEnabled) {
+    playAlertSound()
+  }
+
+  // 显示测试通知
+  showDialog({
+    title: '测试通知',
+    message: '这是一条测试通知\n\n已触发的效果：\n' + 
+      (notificationSettings.value.flashEnabled ? '- 背景闪烁\n' : '') +
+      (notificationSettings.value.soundEnabled ? '- 声音提醒\n' : '') +
+      (notificationSettings.value.webhookEnabled ? '- Webhook通知\n' : ''),
+    confirmButtonText: '知道了',
+    showCancelButton: false
+  }).then(() => {
+    // 用户点击确认后停止效果
+    stopFlashing()
+    stopAlertSound()
+  })
+
+  // 测试Webhook
+  if (notificationSettings.value.webhookEnabled) {
+    sendWebhookNotification('这是一条测试通知')
+  }
+}
 </script>
 
-<style scoped>
-.app-container {
-  min-height: 100vh;
-  background-color: #f5f7fa;
-  padding: 20px;
-  max-width: 90%;
-  margin: 0 auto;
+<template>
+  <!-- 添加meta标签防止缩放 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  
+  <div class="app">
+    <!-- 导航栏 -->
+    <van-nav-bar
+      :title="currentCoin.name + '/USDT 监控'"
+      :right-text="wsConnected ? '已连接' : '未连接'"
+      :right-text-color="wsConnected ? '#07c160' : '#ee0a24'"
+      fixed
+      placeholder
+    >
+      <template #left>
+        <van-button 
+          type="primary" 
+          size="small"
+          plain
+          @click="showCoinPicker = true"
+        >
+          切换币种
+        </van-button>
+      </template>
+    </van-nav-bar>
 
-  @media (max-width: 1920px) {
-    max-width: 95%;
+    <!-- 价格展示卡片 -->
+    <div class="content">
+      <van-cell-group inset class="price-group">
+        <van-cell>
+          <template #title>
+            <div class="price-title">
+              <span class="coin-icon">{{ currentCoin.icon }}</span>
+              <span class="current-price" :class="{
+                'price-up': (priceDataMap[currentCoin.symbol]?.priceChange || 0) > 0,
+                'price-down': (priceDataMap[currentCoin.symbol]?.priceChange || 0) < 0
+              }">
+                {{ priceDataMap[currentCoin.symbol]?.currentPrice || '--' }}
+              </span>
+              <van-tag 
+                :type="(priceDataMap[currentCoin.symbol]?.priceChange || 0) >= 0 ? 'success' : 'danger'"
+                class="price-change"
+              >
+                {{ (priceDataMap[currentCoin.symbol]?.priceChange || 0) >= 0 ? '+' : '' }}
+                {{ priceDataMap[currentCoin.symbol]?.priceChange?.toFixed(2) || '0.00' }}%
+              </van-tag>
+            </div>
+          </template>
+          <template #label>
+            <div class="price-info">
+              <div class="price-row">
+                <span>24h高: </span>
+                <span class="value price-up">{{ priceDataMap[currentCoin.symbol]?.high24h || '--' }} USDT</span>
+              </div>
+              <div class="price-row">
+                <span>24h低: </span>
+                <span class="value price-down">{{ priceDataMap[currentCoin.symbol]?.low24h || '--' }} USDT</span>
+              </div>
+              <div class="price-row">
+                <span>开盘价: </span>
+                <span class="value">{{ priceDataMap[currentCoin.symbol]?.openPrice || '--' }} USDT</span>
+              </div>
+              <div class="price-row">
+                <span>涨跌额: </span>
+                <span class="value" :class="{
+                  'price-up': (priceDataMap[currentCoin.symbol]?.priceChangeAmount || 0) > 0,
+                  'price-down': (priceDataMap[currentCoin.symbol]?.priceChangeAmount || 0) < 0
+                }">
+                  {{ (priceDataMap[currentCoin.symbol]?.priceChangeAmount || 0) >= 0 ? '+' : '' }}{{ priceDataMap[currentCoin.symbol]?.priceChangeAmount || '--' }} USDT
+                </span>
+              </div>
+              <div class="price-row">
+                <span>24h成交量: {{ priceDataMap[currentCoin.symbol]?.volume || '--' }} {{ currentCoin.name }}</span>
+              </div>
+              <div class="price-row">
+                <span>24h成交额: {{ priceDataMap[currentCoin.symbol]?.quoteVolume || '--' }} USDT</span>
+              </div>
+            </div>
+          </template>
+        </van-cell>
+      </van-cell-group>
+
+      <!-- 预警条件展示 -->
+      <van-cell-group 
+        v-if="savedThresholds[currentCoin.symbol]" 
+        inset 
+        title="预警条件"
+        class="alert-group"
+      >
+        <van-cell>
+          <template #title>
+            <div class="alert-info">
+              <div class="alert-header">
+                <span>价格穿过以下点位时预警</span>
+              </div>
+              <div class="threshold-prices">
+                <span v-for="(price, index) in savedThresholds[currentCoin.symbol].prices" 
+                      :key="index"
+                      v-if="price !== '0'"
+                      class="threshold-price"
+                      :class="{
+                        'price-reached': isReached(price, currentCoin.symbol),
+                        'price-pending': !isReached(price, currentCoin.symbol)
+                      }"
+                >
+                  <span class="price-index">{{ index + 1 }}</span>
+                  {{ price }} USDT
+                </span>
+              </div>
+            </div>
+          </template>
+        </van-cell>
+      </van-cell-group>
+
+      <!-- 其他币种预警列表 -->
+      <van-cell-group 
+        v-if="Object.keys(savedThresholds).filter(s => s !== currentCoin.symbol).length > 0" 
+        inset 
+        title="其他币种预警"
+        class="alert-group"
+      >
+        <van-cell v-for="symbol in Object.keys(savedThresholds).filter(s => s !== currentCoin.symbol)" :key="symbol">
+          <template #title>
+            <div class="alert-info">
+              <div class="alert-header">
+                <span class="coin-name">
+                  {{ supportedCoins.find(c => c.symbol === symbol)?.name || symbol }}:
+                </span>
+                <span>价格穿过以下点位时预警</span>
+              </div>
+              <div class="threshold-prices">
+                <span v-for="(price, index) in savedThresholds[symbol].prices" 
+                      :key="index"
+                      v-if="price !== '0'"
+                      class="threshold-price"
+                      :class="{
+                        'price-reached': isReached(price, symbol),
+                        'price-pending': !isReached(price, symbol)
+                      }"
+                >
+                  <span class="price-index">{{ index + 1 }}</span>
+                  {{ price }} USDT
+                </span>
+              </div>
+            </div>
+          </template>
+        </van-cell>
+      </van-cell-group>
+    </div>
+
+    <!-- 底部按钮 -->
+    <div class="bottom-buttons">
+      <van-button 
+        type="primary" 
+        block 
+        size="large"
+        @click="showNotificationSettings = true"
+      >
+        通知设置
+      </van-button>
+      <van-button 
+        type="warning" 
+        block 
+        size="large"
+        @click="openAlertSettings"
+      >
+        预警设置
+      </van-button>
+    </div>
+
+    <!-- 币种选择弹窗 -->
+    <van-popup
+      v-model:show="showCoinPicker"
+      position="bottom"
+      round
+      closeable
+      safe-area-inset-bottom
+    >
+      <div class="popup-content">
+        <div class="popup-header">选择币种</div>
+        <van-cell-group>
+          <van-cell 
+            v-for="coin in supportedCoins" 
+            :key="coin.symbol"
+            :title="coin.name + '/USDT'"
+            clickable
+            @click="switchCoin(coin)"
+          >
+            <template #right-icon>
+              <span class="coin-icon">{{ coin.icon }}</span>
+            </template>
+          </van-cell>
+        </van-cell-group>
+      </div>
+    </van-popup>
+
+    <!-- 通知设置弹窗 -->
+    <van-popup
+      v-model:show="showNotificationSettings"
+      position="bottom"
+      round
+      closeable
+      safe-area-inset-bottom
+    >
+      <div class="popup-content">
+        <div class="popup-header">通知设置</div>
+        <van-cell-group>
+          <van-cell title="启用价格波动通知" label="关闭后将停止所有通知">
+            <template #right-icon>
+              <van-switch v-model="notificationSettings.enabled" @change="updateNotificationSettings" />
+            </template>
+          </van-cell>
+          
+          <van-cell title="价格变化通知">
+            <template #right-icon>
+              <van-switch 
+                v-model="notificationSettings.thresholdEnabled" 
+                :disabled="!notificationSettings.enabled"
+                @change="updateNotificationSettings" 
+              />
+            </template>
+          </van-cell>
+
+          <van-field
+            v-if="notificationSettings.thresholdEnabled"
+            v-model="notificationSettings.threshold"
+            type="digit"
+            label="价格变化阈值"
+            placeholder="请输入价格变化百分比"
+            :disabled="!notificationSettings.enabled"
+            right-icon="after"
+            @blur="updateNotificationSettings"
+          >
+            <template #right-icon>%</template>
+          </van-field>
+
+          <van-cell title="背景闪烁提醒">
+            <template #right-icon>
+              <van-switch 
+                v-model="notificationSettings.flashEnabled" 
+                :disabled="!notificationSettings.enabled"
+                @change="updateNotificationSettings" 
+              />
+            </template>
+          </van-cell>
+
+          <van-cell title="声音提醒">
+            <template #right-icon>
+              <van-switch 
+                v-model="notificationSettings.soundEnabled" 
+                :disabled="!notificationSettings.enabled"
+                @change="updateNotificationSettings" 
+              />
+            </template>
+          </van-cell>
+
+          <van-cell title="Webhook通知">
+            <template #right-icon>
+              <van-switch 
+                v-model="notificationSettings.webhookEnabled" 
+                :disabled="!notificationSettings.enabled"
+                @change="updateNotificationSettings" 
+              />
+            </template>
+          </van-cell>
+
+          <van-field
+            v-if="notificationSettings.webhookEnabled"
+            v-model="notificationSettings.webhookUrl"
+            label="Webhook地址"
+            placeholder="请输入接收通知的URL"
+            :disabled="!notificationSettings.enabled"
+            @blur="updateNotificationSettings"
+          />
+        </van-cell-group>
+      </div>
+    </van-popup>
+
+    <!-- 预警设置弹窗 -->
+    <van-popup
+      v-model:show="showAlertSettings"
+      position="bottom"
+      round
+      closeable
+      safe-area-inset-bottom
+    >
+      <div class="popup-content">
+        <div class="popup-header">预警设置 ({{ currentCoin.name }}/USDT)</div>
+        <div class="popup-desc">设置价格穿过点，输入0或留空表示忽略该价格点</div>
+        <van-cell-group>
+          <van-cell title="解锁设置" center>
+            <template #right-icon>
+              <van-switch v-model="isAlertSettingsUnlocked" />
+            </template>
+          </van-cell>
+          <div class="settings-content" :class="{ 'settings-locked': !isAlertSettingsUnlocked }">
+            <van-field
+              v-model="alertPrices.price1"
+              type="digit"
+              label="价格点1"
+              placeholder="请输入预警价格"
+              right-icon="after"
+              :readonly="!isAlertSettingsUnlocked"
+            >
+              <template #right-icon>USDT</template>
+            </van-field>
+            <van-field
+              v-model="alertPrices.price2"
+              type="digit"
+              label="价格点2"
+              placeholder="请输入预警价格"
+              right-icon="after"
+              :readonly="!isAlertSettingsUnlocked"
+            >
+              <template #right-icon>USDT</template>
+            </van-field>
+            <van-field
+              v-model="alertPrices.price3"
+              type="digit"
+              label="价格点3"
+              placeholder="请输入预警价格"
+              right-icon="after"
+              :readonly="!isAlertSettingsUnlocked"
+            >
+              <template #right-icon>USDT</template>
+            </van-field>
+            <div class="popup-buttons">
+              <div class="button-group">
+                <van-button 
+                  v-if="isAlertSettingsUnlocked && savedThresholds[currentCoin.symbol]"
+                  type="danger" 
+                  class="danger-button"
+                  size="large"
+                  @click="clearAlert(currentCoin.symbol)"
+                >
+                  清除预警
+                </van-button>
+                <van-button 
+                  type="primary" 
+                  class="save-button"
+                  size="large"
+                  :disabled="!isAlertSettingsUnlocked"
+                  @click="saveAlertSettings"
+                >
+                  保存设置
+                </van-button>
+              </div>
+            </div>
+          </div>
+        </van-cell-group>
+      </div>
+    </van-popup>
+  </div>
+</template>
+
+<style>
+/* 添加闪烁动画 */
+@keyframes flash {
+  0% { 
+    background: #ff0000;
+    box-shadow: 0 0 100px #ff0000, 0 0 200px #ff0000;
+    transform: scale(1.08) rotate(-2deg);
+    border: 4px solid #ff0000;
+    filter: brightness(1.5);
   }
-
-  @media (max-width: 1440px) {
-    max-width: 90%;
+  25% {
+    transform: scale(1.05) rotate(2deg);
+    filter: brightness(1.3);
   }
-
-  @media (max-width: 768px) {
-    max-width: 100%;
-    padding: 10px;
+  50% { 
+    background: #ffffff;
+    box-shadow: 0 0 80px #ffffff, 0 0 160px #ffffff;
+    transform: scale(1) rotate(0deg);
+    border: 4px solid #ffffff;
+    filter: brightness(1.8);
   }
-
-  .el-main {
-    padding: 0;
+  75% {
+    transform: scale(1.05) rotate(-2deg);
+    filter: brightness(1.3);
   }
-
-  .el-row {
-    margin: 0 !important;
-  }
-
-  .price-card, .alert-card {
-    margin-bottom: 20px;
-    border-radius: 8px;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
-    background: #fff;
-    height: calc(100vh - 40px);
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-
-    @media (max-width: 768px) {
-      height: auto;
-      min-height: 500px;
-    }
-
-    :deep(.el-card__header) {
-      padding: 15px 20px;
-      border-bottom: 1px solid #e4e7ed;
-      flex-shrink: 0;
-    }
-
-    :deep(.el-card__body) {
-      flex: 1;
-      overflow-y: auto;
-      padding: 0;
-    }
-
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-
-      span {
-        font-size: 20px;
-        font-weight: 600;
-        color: #303133;
-
-        @media (max-width: 768px) {
-          font-size: 16px;
-        }
-      }
-    }
-
-    .price-content {
-      padding: 20px;
-      height: 100%;
-
-      .price-title {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        margin-bottom: 20px;
-
-        span {
-          font-size: 16px;
-          color: #606266;
-        }
-
-        h2 {
-          margin: 0;
-          font-size: 48px;
-          font-weight: 600;
-          color: #303133;
-          line-height: 1.2;
-
-          @media (max-width: 1440px) {
-            font-size: 40px;
-          }
-
-          @media (max-width: 768px) {
-            font-size: 28px;
-          }
-
-          &.price-flash {
-            animation: priceFlash 1s infinite;
-          }
-        }
-      }
-
-      .threshold-info {
-        margin: 20px 0;
-
-        :deep(.el-alert) {
-          border-radius: 4px;
-
-          .el-alert__title {
-            font-size: 14px;
-            font-weight: 600;
-          }
-        }
-
-        .price-points-progress {
-          margin-top: 15px;
-
-          .price-point-status {
-            padding: 12px;
-            margin: 8px 0;
-            border-radius: 4px;
-            background: #fff;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 14px;
-            color: #606266;
-            border: 1px solid #dcdfe6;
-
-            @media (max-width: 480px) {
-              flex-direction: column;
-              gap: 8px;
-              text-align: center;
-            }
-
-            &.reached {
-              background: #f0f9eb;
-              border-color: #e1f3d8;
-            }
-          }
-        }
-      }
-
-      .price-details {
-        background: #f5f7fa;
-        border-radius: 4px;
-        padding: 15px;
-
-        .detail-item {
-          margin: 10px 0;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          font-size: 14px;
-
-          span {
-            &:first-child {
-              color: #606266;
-            }
-
-            &:last-child {
-              color: #303133;
-              font-weight: 500;
-            }
-          }
-        }
-      }
-    }
-  }
-
-  .header-controls {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-
-    .notification-btn {
-      font-size: 14px;
-      padding: 8px 15px;
-    }
-
-    .price-change {
-      font-size: 14px;
-      padding: 6px 12px;
-      border-radius: 4px;
-    }
-  }
-
-  .notification-settings {
-    padding: 15px;
-
-    .setting-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin: 10px 0;
-      font-size: 14px;
-    }
-
-    .webhook-input {
-      margin-top: 10px;
-      
-      :deep(.el-input__inner) {
-        font-size: 12px;
-      }
-    }
-  }
-
-  :deep(.el-form) {
-    padding: 20px;
-    height: 100%;
-
-    .el-form-item {
-      margin-bottom: 25px;
-
-      &__label {
-        font-size: 16px;
-        padding-bottom: 10px;
-      }
-    }
-
-    .el-input-number {
-      width: 240px !important;
-
-      @media (max-width: 1440px) {
-        width: 200px !important;
-      }
-
-      @media (max-width: 768px) {
-        width: 160px !important;
-      }
-
-      .el-input__inner {
-        height: 40px;
-        font-size: 16px;
-      }
-    }
-
-    .el-button--primary {
-      height: 40px;
-      font-size: 16px;
-      padding: 0 30px;
-      min-width: 120px;
-    }
-  }
-
-  .el-col {
-    padding: 0 10px !important;
-  }
-
-  .connection-status {
-    cursor: pointer;
-    transition: all 0.3s;
-    
-    &:hover {
-      opacity: 0.8;
-    }
+  100% { 
+    background: #ff0000;
+    box-shadow: 0 0 100px #ff0000, 0 0 200px #ff0000;
+    transform: scale(1.08) rotate(2deg);
+    border: 4px solid #ff0000;
+    filter: brightness(1.5);
   }
 }
 
-@keyframes priceFlash {
-  0% { opacity: 1; }
-  50% { opacity: 0.7; }
-  100% { opacity: 1; }
+.flashing {
+  animation: flash 0.3s infinite !important;
+  position: relative;
+  z-index: 2000 !important;
+  filter: contrast(1.5) brightness(1.5);
+  backdrop-filter: blur(4px);
+}
+
+:root {
+  --van-nav-bar-height: 46px;
+}
+
+.app {
+  min-height: 100vh;
+  background: #f7f8fa;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 88px);
+  transition: background-color 0.3s;
+}
+
+.content {
+  padding: 12px;
+  transition: all 0.3s ease;
+  border-radius: 8px;
+}
+
+.price-group {
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #1989fa0d 0%, #ffffff 100%);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  position: relative;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  isolation: isolate;
+}
+
+.price-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.coin-icon {
+  font-size: 28px;
+  color: #1989fa;
+  background: #1989fa0d;
+  width: 48px;
+  height: 48px;
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.current-price {
+  font-size: 36px;
+  font-weight: bold;
+  color: #323233;
+  flex: 1;
+}
+
+.price-change {
+  font-size: 16px;
+  padding: 8px 12px;
+  border-radius: 20px;
+}
+
+.price-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  color: #969799;
+  font-size: 15px;
+  padding: 0 4px;
+}
+
+.price-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.price-row span:first-child {
+  color: #666;
+}
+
+.price-row .value {
+  color: #323233;
+  font-weight: 500;
+}
+
+.alert-group {
+  margin-top: 12px;
+}
+
+.alert-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.alert-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alert-progress {
+  color: #969799;
+  font-size: 14px;
+}
+
+.coin-name {
+  font-weight: 500;
+  color: #323233;
+}
+
+.threshold-prices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding-bottom: 4px;
+}
+
+.threshold-price {
+  font-weight: bold;
+  color: #323233;
+  padding: 4px 8px;
+  border-radius: 16px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.threshold-price.price-pending {
+  background: #f5f5f5;
+  color: #999;
+  border: 1px solid #e8e8e8;
+}
+
+.threshold-price.price-reached {
+  background: #fffbe8;
+  color: #ed6a0c;
+  border: 1px solid #ed6a0c;
+}
+
+.price-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 12px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.1);
+  margin-right: 2px;
+}
+
+.price-reached .price-index {
+  background: rgba(237, 106, 12, 0.2);
+  color: #ed6a0c;
+}
+
+.price-pending .price-index {
+  background: rgba(153, 153, 153, 0.2);
+  color: #999;
+}
+
+.bottom-buttons {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 16px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05);
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+.popup-content {
+  padding-top: 24px;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
+}
+
+.popup-header {
+  text-align: center;
+  font-size: 16px;
+  font-weight: bold;
+  margin-bottom: 16px;
+}
+
+.popup-buttons {
+  padding: 16px;
+}
+
+.popup-desc {
+  color: #969799;
+  font-size: 14px;
+  text-align: center;
+  margin: -8px 0 16px;
+  padding: 0 16px;
+}
+
+:deep(.van-field__right-icon) {
+  color: #969799;
+}
+
+:deep(.van-radio-group) {
+  display: flex;
+  gap: 16px;
+}
+
+:deep(.van-cell) {
+  padding: 16px;
+}
+
+:deep(.van-tag--success) {
+  background: #07c160;
+}
+
+:deep(.van-tag--danger) {
+  background: #ee0a24;
+}
+
+.price-up {
+  color: #03a66d !important;
+}
+
+.price-down {
+  color: #cf304a !important;
+}
+
+.custom-toast {
+  min-width: 200px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  background: rgba(50, 50, 50, 0.9) !important;
+}
+
+.custom-toast .van-toast__icon {
+  font-size: 20px;
+  margin-bottom: 6px;
+}
+
+.settings-content {
+  position: relative;
+}
+
+.settings-locked {
+  position: relative;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.settings-locked::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.6);
+  z-index: 1;
+}
+
+.button-group {
+  display: flex;
+  gap: 8px;
+}
+
+.button-group .danger-button {
+  flex: 1;
+  max-width: 33.33%;
+}
+
+.button-group .save-button {
+  flex: 2;
 }
 </style>
