@@ -308,7 +308,7 @@ const connectWebSocket = () => {
         heartbeatInterval = null
       }
       
-      if (!document.hidden && !reconnectTimeout) {
+      if (!reconnectTimeout) {
         const delay = isIOS ? 5000 : 3000 // iOS设备使用更长的重连延迟
         console.log(`准备重新连接，延迟 ${delay}ms`)
         reconnectTimeout = window.setTimeout(() => {
@@ -428,21 +428,29 @@ const saveAlertSettings = () => {
 
 const handleVisibilityChange = () => {
   console.log('可见性变化:', document.hidden ? '隐藏' : '可见')
-  if (document.hidden) {
-    // 页面隐藏时关闭WebSocket
-    console.log('页面隐藏，关闭WebSocket')
-    if (ws) {
-      ws.close()
-      ws = null
-    }
-    if (heartbeatInterval) {
-      clearInterval(heartbeatInterval)
-      heartbeatInterval = null
-    }
-  } else {
-    // 页面可见时重新连接WebSocket
-    console.log('页面可见，重新连接WebSocket')
+  // 不再在页面隐藏时关闭连接，保持后台运行
+  if (!document.hidden && !isConnected.value && !isConnecting.value) {
+    // 如果页面重新可见且没有连接，则重新连接
+    console.log('页面可见，检测到未连接，重新连接WebSocket')
     connectWebSocket()
+  }
+}
+
+// 添加一个函数来处理iOS的特殊情况
+const setupIOSWakeLock = () => {
+  if (isIOS) {
+    // 创建一个隐藏的音频元素来保持后台运行
+    const silentAudio = new Audio()
+    silentAudio.setAttribute('src', 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA')
+    silentAudio.setAttribute('loop', 'true')
+    document.body.appendChild(silentAudio)
+    
+    // 在用户交互时播放
+    document.addEventListener('touchstart', () => {
+      silentAudio.play().catch(() => {
+        console.log('无法播放后台保活音频')
+      })
+    }, { once: true })
   }
 }
 
@@ -451,6 +459,9 @@ onMounted(() => {
   if (Notification.permission !== 'granted') {
     Notification.requestPermission()
   }
+  
+  // 设置iOS后台保活
+  setupIOSWakeLock()
   
   // 加载预警设置
   const savedAlert = localStorage.getItem('btcAlert')
