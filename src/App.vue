@@ -179,6 +179,10 @@ const isConnected = ref(false)
 const isConnecting = ref(false)
 let ws: WebSocket | null = null
 let reconnectTimeout: number | null = null
+let heartbeatInterval: number | null = null
+
+// 检测是否是iOS设备
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
 
 const alertForm = ref({
   type: 'greater' as 'greater' | 'less',
@@ -244,10 +248,19 @@ const connectWebSocket = () => {
   
   if (ws) {
     ws.close()
+    ws = null
   }
   
   try {
     ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@ticker')
+    
+    // 设置更长的超时时间
+    setTimeout(() => {
+      if (ws && ws.readyState === WebSocket.CONNECTING) {
+        console.log('连接超时，关闭连接')
+        ws.close()
+      }
+    }, 10000)
     
     ws.onopen = () => {
       console.log('WebSocket连接已建立')
@@ -257,29 +270,51 @@ const connectWebSocket = () => {
         clearTimeout(reconnectTimeout)
         reconnectTimeout = null
       }
+      
+      // 开始发送心跳
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval)
+      }
+      heartbeatInterval = window.setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ method: "ping" }))
+        }
+      }, 30000)
     }
     
     ws.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      currentPrice.value = parseFloat(data.c)
-      priceChange24h.value = parseFloat(data.P)
-      high24h.value = parseFloat(data.h)
-      low24h.value = parseFloat(data.l)
-      volume24h.value = parseFloat(data.v)
-      checkAlert()
+      try {
+        const data = JSON.parse(event.data)
+        if (data.c) { // 确保是价格数据而不是心跳响应
+          currentPrice.value = parseFloat(data.c)
+          priceChange24h.value = parseFloat(data.P)
+          high24h.value = parseFloat(data.h)
+          low24h.value = parseFloat(data.l)
+          volume24h.value = parseFloat(data.v)
+          checkAlert()
+        }
+      } catch (error) {
+        console.error('处理消息出错:', error)
+      }
     }
     
-    ws.onclose = () => {
-      console.log('WebSocket连接关闭')
+    ws.onclose = (event) => {
+      console.log('WebSocket连接关闭, code:', event.code, 'reason:', event.reason)
       isConnected.value = false
       isConnecting.value = false
       
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval)
+        heartbeatInterval = null
+      }
+      
       if (!document.hidden && !reconnectTimeout) {
-        console.log('准备重新连接')
+        const delay = isIOS ? 5000 : 3000 // iOS设备使用更长的重连延迟
+        console.log(`准备重新连接，延迟 ${delay}ms`)
         reconnectTimeout = window.setTimeout(() => {
           reconnectTimeout = null
           connectWebSocket()
-        }, 3000)
+        }, delay)
       }
     }
     
@@ -287,7 +322,10 @@ const connectWebSocket = () => {
       console.error('WebSocket错误:', error)
       isConnected.value = false
       isConnecting.value = false
-      ws?.close()
+      if (ws) {
+        ws.close()
+        ws = null
+      }
     }
   } catch (error) {
     console.error('创建WebSocket连接失败:', error)
@@ -393,7 +431,14 @@ const handleVisibilityChange = () => {
   if (document.hidden) {
     // 页面隐藏时关闭WebSocket
     console.log('页面隐藏，关闭WebSocket')
-    ws?.close()
+    if (ws) {
+      ws.close()
+      ws = null
+    }
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval)
+      heartbeatInterval = null
+    }
   } else {
     // 页面可见时重新连接WebSocket
     console.log('页面可见，重新连接WebSocket')
@@ -452,10 +497,15 @@ onBeforeUnmount(() => {
   // 关闭WebSocket连接
   if (ws) {
     ws.close()
+    ws = null
   }
   if (reconnectTimeout) {
     clearTimeout(reconnectTimeout)
     reconnectTimeout = null
+  }
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval)
+    heartbeatInterval = null
   }
   if (flashTimer) {
     clearTimeout(flashTimer)
