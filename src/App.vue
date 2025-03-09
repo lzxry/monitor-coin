@@ -289,8 +289,8 @@ const checkAlert = (symbol: string) => {
   const priceData = priceDataMap.value[symbol]
   if (!priceData) return
 
-  const currentPrice = parseFloat(priceData.currentPrice)
-  const lastPrice = parseFloat(threshold.lastPrice)
+  const currentPrice = Number(priceData.currentPrice)
+  const lastPrice = Number(threshold.lastPrice)
   
   if (isNaN(lastPrice)) {
     threshold.lastPrice = priceData.currentPrice
@@ -306,7 +306,7 @@ const checkAlert = (symbol: string) => {
 
   // 检查价格点是否按顺序被触发
   validPrices.forEach(priceStr => {
-    const price = parseFloat(priceStr)
+    const price = Number(priceStr)
     if (isNaN(price)) return
 
     // 检查是否是下一个需要触发的价格点
