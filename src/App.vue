@@ -638,10 +638,10 @@ const testNotifications = () => {
               <div class="price-row">
                 <span>涨跌额: </span>
                 <span class="value" :class="{
-                  'price-up': (priceDataMap[currentCoin.symbol]?.priceChangeAmount || 0) > 0,
-                  'price-down': (priceDataMap[currentCoin.symbol]?.priceChangeAmount || 0) < 0
+                  'price-up': Number(priceDataMap[currentCoin.symbol]?.priceChangeAmount || 0) > 0,
+                  'price-down': Number(priceDataMap[currentCoin.symbol]?.priceChangeAmount || 0) < 0
                 }">
-                  {{ (priceDataMap[currentCoin.symbol]?.priceChangeAmount || 0) >= 0 ? '+' : '' }}{{ priceDataMap[currentCoin.symbol]?.priceChangeAmount || '--' }} USDT
+                  {{ Number(priceDataMap[currentCoin.symbol]?.priceChangeAmount || 0) >= 0 ? '+' : '' }}{{ priceDataMap[currentCoin.symbol]?.priceChangeAmount || '--' }} USDT
                 </span>
               </div>
               <div class="price-row">
