@@ -9,14 +9,14 @@
                 <div class="card-header">
                   <span>BTC/USDT</span>
                   <div class="header-controls">
-                    <el-button 
-                      type="primary"
+                    <el-tag 
+                      :type="isConnected ? 'success' : (isConnecting ? 'warning' : 'danger')"
                       size="small"
-                      @click="manualRefresh"
-                      :loading="isRefreshing"
+                      class="connection-status"
+                      @click="!isConnected && !isConnecting ? connectWebSocket() : null"
                     >
-                      刷新
-                    </el-button>
+                      {{ isConnected ? '已连接' : (isConnecting ? '连接中' : '未连接') }}
+                    </el-tag>
                     <el-popover
                       placement="bottom"
                       :width="200"
@@ -118,8 +118,8 @@
                 <el-form :model="alertForm" label-width="120px">
                   <el-form-item label="预警类型">
                     <el-radio-group v-model="alertForm.type">
-                      <el-radio label="greater">向上突破</el-radio>
-                      <el-radio label="less">向下突破</el-radio>
+                      <el-radio :value="'greater'">向上突破</el-radio>
+                      <el-radio :value="'less'">向下突破</el-radio>
                     </el-radio-group>
                   </el-form-item>
                   <el-form-item label="价格点1">
@@ -175,8 +175,10 @@ const priceChange24h = ref(0)
 const high24h = ref(0)
 const low24h = ref(0)
 const volume24h = ref(0)
-const isRefreshing = ref(false)
+const isConnected = ref(false)
+const isConnecting = ref(false)
 let ws: WebSocket | null = null
+let reconnectTimeout: number | null = null
 
 const alertForm = ref({
   type: 'greater' as 'greater' | 'less',
@@ -232,31 +234,65 @@ const isPricePointReached = (price: number) => {
 }
 
 const connectWebSocket = () => {
+  if (isConnecting.value || (ws && ws.readyState === WebSocket.CONNECTING)) {
+    console.log('WebSocket正在连接中，忽略重复连接请求')
+    return
+  }
+
   console.log('开始建立WebSocket连接')
+  isConnecting.value = true
+  
   if (ws) {
     ws.close()
   }
   
-  ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@ticker')
-  
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data)
-    currentPrice.value = parseFloat(data.c)
-    priceChange24h.value = parseFloat(data.P)
-    high24h.value = parseFloat(data.h)
-    low24h.value = parseFloat(data.l)
-    volume24h.value = parseFloat(data.v)
-    checkAlert()
-  }
-  
-  ws.onclose = () => {
-    console.log('WebSocket连接关闭，尝试重连')
-    setTimeout(connectWebSocket, 1000)
-  }
-  
-  ws.onerror = (error) => {
-    console.error('WebSocket错误:', error)
-    ws?.close()
+  try {
+    ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@ticker')
+    
+    ws.onopen = () => {
+      console.log('WebSocket连接已建立')
+      isConnected.value = true
+      isConnecting.value = false
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout)
+        reconnectTimeout = null
+      }
+    }
+    
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+      currentPrice.value = parseFloat(data.c)
+      priceChange24h.value = parseFloat(data.P)
+      high24h.value = parseFloat(data.h)
+      low24h.value = parseFloat(data.l)
+      volume24h.value = parseFloat(data.v)
+      checkAlert()
+    }
+    
+    ws.onclose = () => {
+      console.log('WebSocket连接关闭')
+      isConnected.value = false
+      isConnecting.value = false
+      
+      if (!document.hidden && !reconnectTimeout) {
+        console.log('准备重新连接')
+        reconnectTimeout = window.setTimeout(() => {
+          reconnectTimeout = null
+          connectWebSocket()
+        }, 3000)
+      }
+    }
+    
+    ws.onerror = (error) => {
+      console.error('WebSocket错误:', error)
+      isConnected.value = false
+      isConnecting.value = false
+      ws?.close()
+    }
+  } catch (error) {
+    console.error('创建WebSocket连接失败:', error)
+    isConnected.value = false
+    isConnecting.value = false
   }
 }
 
@@ -365,19 +401,6 @@ const handleVisibilityChange = () => {
   }
 }
 
-const manualRefresh = async () => {
-  console.log('手动刷新被调用')
-  try {
-    isRefreshing.value = true
-    await fetchBTCData()
-  } catch (error) {
-    console.error('手动刷新失败:', error)
-    ElMessage.error('手动刷新失败')
-  } finally {
-    isRefreshing.value = false
-  }
-}
-
 onMounted(() => {
   console.log('组件挂载')
   if (Notification.permission !== 'granted') {
@@ -429,6 +452,10 @@ onBeforeUnmount(() => {
   // 关闭WebSocket连接
   if (ws) {
     ws.close()
+  }
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout)
+    reconnectTimeout = null
   }
   if (flashTimer) {
     clearTimeout(flashTimer)
@@ -703,6 +730,15 @@ watch(() => alertForm.value.type, (newValue) => {
 
   .el-col {
     padding: 0 10px !important;
+  }
+
+  .connection-status {
+    cursor: pointer;
+    transition: all 0.3s;
+    
+    &:hover {
+      opacity: 0.8;
+    }
   }
 }
 
