@@ -460,21 +460,29 @@ const getSortedPrices = (prices: string[]) => {
 
 // 判断是否为最高价格
 const isHighPrice = (price: string, symbol: string): boolean => {
-  const currentPrice = parseFloat(priceDataMap.value[symbol]?.currentPrice || '0')
-  return parseFloat(price || '0') > currentPrice
+  if (!price || !symbol) return false
+  const currentPrice = Number(priceDataMap.value[symbol]?.currentPrice || '0')
+  const priceValue = Number(price)
+  if (isNaN(currentPrice) || isNaN(priceValue)) return false
+  return priceValue > currentPrice
 }
 
 // 判断是否为最低价格
 const isLowPrice = (price: string, symbol: string): boolean => {
-  const currentPrice = parseFloat(priceDataMap.value[symbol]?.currentPrice || '0')
-  return parseFloat(price || '0') < currentPrice
+  if (!price || !symbol) return false
+  const currentPrice = Number(priceDataMap.value[symbol]?.currentPrice || '0')
+  const priceValue = Number(price)
+  if (isNaN(currentPrice) || isNaN(priceValue)) return false
+  return priceValue < currentPrice
 }
 
 // 判断是否达到预警条件
 const isReached = (price: string, symbol: string): boolean => {
-  const currentPrice = parseFloat(priceDataMap.value[symbol]?.currentPrice || '0')
-  const targetPrice = parseFloat(price || '0')
-  return currentPrice >= targetPrice
+  if (!price || !symbol) return false
+  const currentPrice = Number(priceDataMap.value[symbol]?.currentPrice || '0')
+  const priceValue = Number(price)
+  if (isNaN(currentPrice) || isNaN(priceValue)) return false
+  return currentPrice >= priceValue
 }
 
 // 生命周期钩子
